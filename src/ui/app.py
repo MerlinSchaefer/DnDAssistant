@@ -1,19 +1,10 @@
-# import sys
-# from pathlib import Path
-
-# # Add the src directory to sys.path
-# src_path = Path(__file__).resolve().parent.parent
-# print(src_path)
-# sys.path.append(str(src_path))
-import os
-from pathlib import Path
-
 import streamlit as st
-from langchain.prompts import PromptTemplate
-from langchain_core.output_parsers import JsonOutputParser, StrOutputParser
-from langchain_community.chat_models import ChatOllama
 from langchain.embeddings import HuggingFaceEmbeddings
+from langchain.prompts import PromptTemplate
+from langchain_community.chat_models import ChatOllama
 from langchain_community.vectorstores import SKLearnVectorStore
+from langchain_core.output_parsers import StrOutputParser
+
 # from src.db import get_vector_store, get_storage_context
 # from src.llm.deployments import AvailableChatModels, get_chat_model
 # from src.llm.embeddings import AvailableEmbeddingModels, get_embedding_model
@@ -21,14 +12,15 @@ from langchain_community.vectorstores import SKLearnVectorStore
 # from src.parsers import DocumentParser
 from src.llm.prompts.assistant import general_prompt
 
+
 # Funcs to create page resources
 @st.cache_resource
-def load_llm(model_name = None) -> ChatOllama:
+def load_llm(model_name=None) -> ChatOllama:
     # return get_chat_model(
     #     model_name=model_name,
     # )
-    local_llm = 'llama3.2'
-    return ChatOllama(model=local_llm, temperature=0.5, num_ctx = 16000)
+    local_llm = "llama3.2"
+    return ChatOllama(model=local_llm, temperature=0.5, num_ctx=16000)
 
 
 # @st.cache_resource
@@ -39,9 +31,8 @@ def load_llm(model_name = None) -> ChatOllama:
 @st.cache_resource
 def load_vector_store():
     return SKLearnVectorStore(
-    embedding=HuggingFaceEmbeddings(#model_name ="BAAI/bge-large-en-v1.5",
-                                     model_kwargs = {"device":"cuda"})
-)
+        embedding=HuggingFaceEmbeddings(model_kwargs={"device": "cuda"})  # model_name ="BAAI/bge-large-en-v1.5",
+    )
     # return get_vector_store(
     #     table_name="dev_vectors_2",  # TODO: adjust
     #     embed_dim=1024,  # TODO: adjust
@@ -53,11 +44,13 @@ def load_retriever():
     vector_store = load_vector_store()
     return vector_store.as_retriever(k=3)
 
+
 # ONLY FOR TESTING
 class RAGApplication:
     def __init__(self, retriever, rag_chain):
         self.retriever = retriever
         self.rag_chain = rag_chain
+
     def run(self, question):
         # Retrieve relevant documents
         documents = self.retriever.invoke(question)
@@ -66,6 +59,7 @@ class RAGApplication:
         # Get the answer from the language model
         answer = self.rag_chain.invoke({"question": question, "documents": doc_texts})
         return answer
+
 
 @st.cache_resource
 def get_rag_app(_llm: ChatOllama, prompt: PromptTemplate = general_prompt):
@@ -94,7 +88,7 @@ st.sidebar.write("Manage models, documents, and queries.")
 
 
 # Sidebar: Model selection
-#model_name_str = st.sidebar.selectbox("Select a chat model", options=[model.name for model in AvailableChatModels])
+# model_name_str = st.sidebar.selectbox("Select a chat model", options=[model.name for model in AvailableChatModels])
 
 # Sidebar: Button to load the model and query engine
 load_model_button = st.sidebar.button("Load Model and Engine")
@@ -107,7 +101,7 @@ process_file_button = st.sidebar.button("Process File")
 
 # Load the model and query engine if the button is clicked
 if load_model_button:
-    #model_name = AvailableChatModels[model_name_str]  # Convert string to Enum
+    # model_name = AvailableChatModels[model_name_str]  # Convert string to Enum
     llm = load_llm()
     st.session_state.llm = llm
     print(llm.invoke("Hello"))
@@ -164,8 +158,8 @@ if prompt := st.chat_input("Ask me anything"):
     # Get the response from the query engine if it's loaded
     # if st.session_state.query_engine:
 
-        # response = st.session_state.query_engine.query(prompt)
-        # print(response.source_nodes)
+    # response = st.session_state.query_engine.query(prompt)
+    # print(response.source_nodes)
     if st.session_state.llm:
         try:
             response = st.session_state.llm.invoke(prompt)
