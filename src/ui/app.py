@@ -4,7 +4,7 @@ import streamlit as st
 from langchain.embeddings import HuggingFaceEmbeddings
 from langchain.prompts import PromptTemplate
 from langchain_community.chat_models import ChatOllama
-from langchain_community.vectorstores import SKLearnVectorStore
+from langchain_community.vectorstores import SKLearnVectorStore, VectorStore
 from langchain_core.output_parsers import StrOutputParser
 
 # from src.db import get_vector_store, get_storage_context
@@ -31,7 +31,7 @@ def load_emb() -> HuggingFaceEmbeddings:
 
 @st.cache_resource
 def load_vector_store():
-    return SKLearnVectorStore(embedding=load_emb())
+    return SKLearnVectorStore(embedding=load_emb(), n_neighbors=1)
     # return get_vector_store(
     #     table_name="dev_vectors_2",  # TODO: adjust
     #     embed_dim=1024,  # TODO: adjust
@@ -39,9 +39,8 @@ def load_vector_store():
 
 
 @st.cache_resource
-def load_retriever():
-    vector_store = load_vector_store()
-    return vector_store.as_retriever(k=3)
+def load_retriever(_vector_store: VectorStore):
+    return _vector_store.as_retriever(k=3)
 
 
 # ONLY FOR TESTING
@@ -61,20 +60,12 @@ class RAGApplication:
 
 
 @st.cache_resource
-def get_rag_app(_llm: ChatOllama, prompt: PromptTemplate = general_prompt):
-    retriever = load_retriever()
+def get_rag_app(_llm: ChatOllama, _vectorstore: VectorStore, prompt: PromptTemplate = general_prompt):
+    retriever = load_retriever(_vectorstore)
     rag_chain = prompt | _llm | StrOutputParser()
     # Define the RAG application class
     rag_app = RAGApplication(retriever, rag_chain)
     return rag_app
-
-
-# Initialize session state variables
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-llm = None
-if "query_engine" not in st.session_state:
-    st.session_state.query_engine = None
 
 
 # Set page configuration
@@ -85,6 +76,16 @@ st.title("Dungeon Master Assistant Chat")
 st.sidebar.title("Options")
 st.sidebar.write("Manage models, documents, and queries.")
 
+# Initialize session state variables
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+if "llm" not in st.session_state:
+    st.session_state.llm = None
+if "vectorstore" not in st.session_state:
+    st.session_state.vectorstore = load_vector_store()
+if "rag_pp" not in st.session_state:
+    st.session_state.query_engine = None
+
 
 # Sidebar: Model selection
 # model_name_str = st.sidebar.selectbox("Select a chat model", options=[model.name for model in AvailableChatModels])
@@ -94,7 +95,6 @@ load_model_button = st.sidebar.button("Load Model and Engine")
 
 # Sidebar: File Upload for Document Parsing
 uploaded_file = st.sidebar.file_uploader("Upload a document", type=["pdf", "txt", "md"])
-doc_type = st.sidebar.selectbox("Document type", options=["pdf", "txt", "md"])
 process_file_button = st.sidebar.button("Process File")
 
 
@@ -103,9 +103,7 @@ if load_model_button:
     # model_name = AvailableChatModels[model_name_str]  # Convert string to Enum
     llm = load_llm()
     st.session_state.llm = llm
-    print(llm.invoke("Hello"))
-    # Settings.llm = llm
-
+    st.session_state.rag_app = get_rag_app(st.session_state.llm, st.session_state.vectorstore)
     # st.session_state.query_engine = get_query_engine(st.session_state.llm)
     st.success("Model and query engine loaded successfully!")
 
@@ -117,15 +115,15 @@ if process_file_button and uploaded_file:
         f.write(uploaded_file.getbuffer())
 
     # Parse and embed the document
-    st.write(f"Processing document: {uploaded_file.name} as {doc_type}...")
-    document_parser = DocumentProcessor(temp_file_path, doc_type)
+    st.write(f"Processing document: {uploaded_file.name}...")
+    document_parser = DocumentProcessor()
     try:
-        docs = document_parser.load_and_process_documents(temp_file_path)
+        docs = document_parser.load_and_process_documents(str(temp_file_path))
         st.success("Document processed into doc chunks successfully!")
 
         # Add docs to the vector store
-        vectorstore = load_vector_store()
-        vectorstore.add_documents(docs)
+
+        st.session_state.vectorstore.add_documents(docs)
         st.success("Docs added to the vector store!")
 
         # Optionally, display the docs
@@ -160,15 +158,15 @@ if prompt := st.chat_input("Ask me anything"):
 
     # response = st.session_state.query_engine.query(prompt)
     # print(response.source_nodes)
-    if st.session_state.llm:
+    if st.session_state.rag_app:
         try:
-            response = st.session_state.llm.invoke(prompt)
+            response = st.session_state.rag_app.invoke(prompt)
         except Exception as e:
             response = f"Error: {e}"
     else:
         response = "Model and query engine are not loaded. Please load them from the sidebar."
 
     # Add assistant's response to chat history and display it
-    st.session_state.messages.append({"role": "assistant", "content": str(response.content)})
+    st.session_state.messages.append({"role": "assistant", "content": response})
     with st.chat_message("assistant"):
-        st.markdown(str(response.content))
+        st.markdown(response)

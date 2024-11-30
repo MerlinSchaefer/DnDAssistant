@@ -1,7 +1,7 @@
 from langchain.prompts import PromptTemplate
 
 general_prompt = PromptTemplate(
-    template="""You are an assistant for question-answering tasks.
+    template="""You are a helpful assistant for question-answering tasks.
     Use the following documents to answer the question.
     If you don't know the answer, just say that you don't know.
     Use three sentences maximum and keep the answer concise:
