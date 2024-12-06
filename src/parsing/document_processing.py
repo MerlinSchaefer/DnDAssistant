@@ -7,8 +7,8 @@ from langchain_core.documents.base import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_text_splitters.base import Language
 
-DEFAULT_CHUNK_SIZE = 4000
-DEFAULT_CHUNK_OVERLAP = 500
+DEFAULT_CHUNK_SIZE = 500
+DEFAULT_CHUNK_OVERLAP = 10
 
 
 class DocumentProcessor:

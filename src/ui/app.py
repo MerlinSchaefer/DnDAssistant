@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 
 import streamlit as st
@@ -6,7 +7,7 @@ from langchain.prompts import PromptTemplate
 from langchain_community.chat_models import ChatOllama
 from langchain_community.vectorstores import SKLearnVectorStore, VectorStore
 from langchain_core.output_parsers import StrOutputParser
-
+from langchain_core.runnables.history import RunnableWithMessageHistory
 # from src.db import get_vector_store, get_storage_context
 from src.llm.deployments import (
     AvailableChatModels,
@@ -14,9 +15,13 @@ from src.llm.deployments import (
     get_chat_model,
     get_embedding_model,
 )
+from src.llm.memory import create_memory
 from src.llm.prompts.assistant import general_prompt
+from datetime import datetime
 from src.parsing import DocumentProcessor  # get_duckdb_retriever,
 
+# Configure basic debug logging
+logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
 # Funcs to create page resources
 @st.cache_resource
@@ -45,26 +50,41 @@ def load_retriever(_vector_store: VectorStore):
 
 # ONLY FOR TESTING
 class RAGApplication:
-    def __init__(self, retriever, rag_chain):
+    def __init__(self, retriever, rag_chain, session_id=None):
         self.retriever = retriever
         self.rag_chain = rag_chain
-
+        if not session_id:
+            self.session_id = datetime.now().strftime("%Y%m%d%H%M%S")
     def invoke(self, question):
+
+
         # Retrieve relevant documents
         documents = self.retriever.invoke(question)
         # Extract content from retrieved documents
         doc_texts = "\\n".join([doc.page_content for doc in documents])
         # Get the answer from the language model
-        answer = self.rag_chain.invoke({"question": question, "documents": doc_texts})
+        answer = self.rag_chain.invoke({"question": question, "documents": doc_texts}, 
+                                       config={"configurable": {"session_id": self.session_id}})
         return answer
 
+    def _test(self):
+        return self.invoke("Hello, how are you?")
 
 @st.cache_resource
 def get_rag_app(_llm: ChatOllama, _vectorstore: VectorStore, prompt: PromptTemplate = general_prompt):
     retriever = load_retriever(_vectorstore)
     rag_chain = prompt | _llm | StrOutputParser()
+    logging.debug(f"RAG chain: {rag_chain}")
+    rag_chain_with_history = RunnableWithMessageHistory(rag_chain,
+                                                         create_memory,
+                                                         input_messages_key="question",
+                                                         )
+    print(f"RAG chain with history: {rag_chain_with_history}")
     # Define the RAG application class
-    rag_app = RAGApplication(retriever, rag_chain)
+
+    rag_app = RAGApplication(retriever, rag_chain_with_history)
+    print(f"RAG app: {rag_app}")
+
     return rag_app
 
 
@@ -98,14 +118,8 @@ uploaded_file = st.sidebar.file_uploader("Upload a document", type=["pdf", "txt"
 process_file_button = st.sidebar.button("Process File")
 
 
-# Load the model and query engine if the button is clicked
-if load_model_button:
-    # model_name = AvailableChatModels[model_name_str]  # Convert string to Enum
-    llm = load_llm()
-    st.session_state.llm = llm
-    st.session_state.rag_app = get_rag_app(st.session_state.llm, st.session_state.vectorstore)
-    # st.session_state.query_engine = get_query_engine(st.session_state.llm)
-    st.success("Model and query engine loaded successfully!")
+
+
 
 # Process the uploaded document
 if process_file_button and uploaded_file:
@@ -140,6 +154,13 @@ if process_file_button and uploaded_file:
         # Clean up the temporary file
         temp_file_path.unlink()
 
+if load_model_button:
+    # model_name = AvailableChatModels[model_name_str]  # Convert string to Enum
+    llm = load_llm()
+    st.session_state.llm = llm
+    st.session_state.rag_app = get_rag_app(st.session_state.llm, st.session_state.vectorstore)
+    # st.session_state.query_engine = get_query_engine(st.session_state.llm)
+    st.success("Model and query engine loaded successfully!")
 
 # Display existing chat messages
 for message in st.session_state.messages:
