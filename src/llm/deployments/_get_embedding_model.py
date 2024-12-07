@@ -1,6 +1,6 @@
 from enum import Enum
 
-from langchain.embeddings import HuggingFaceEmbeddings
+from langchain_community.embeddings import HuggingFaceEmbeddings
 
 
 class AvailableEmbeddingModels(Enum):
