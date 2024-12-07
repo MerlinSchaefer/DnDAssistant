@@ -7,16 +7,15 @@ from langchain_core.documents.base import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_text_splitters.base import Language
 
-DEFAULT_CHUNK_SIZE = 500
-DEFAULT_CHUNK_OVERLAP = 10
+from src.config import config
 
 
 class DocumentProcessor:
     def __init__(
         self,
         language_for_splitter: Language = Language.MARKDOWN,
-        max_chunk_size: int = DEFAULT_CHUNK_SIZE,
-        max_chunk_overlap: int = DEFAULT_CHUNK_OVERLAP,
+        max_chunk_size: int = config.default_chunk_size,
+        max_chunk_overlap: int = config.default_chunk_overlap,
     ):
         """
         Initializes the DocumentProcessor with metadata keys, content key,

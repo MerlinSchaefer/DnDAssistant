@@ -2,9 +2,9 @@ import logging
 
 import duckdb
 from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain_core import vectorstores
+from langchain_core.vectorstores import VectorStoreRetriever
 
-from src.llm.deployments import AvailableEmbeddingModels
+from src.config import config
 from src.llm.deployments._get_embedding_model import get_embedding_model
 from src.parsing._duckdb.vectorstore import CustomDuckDB
 
@@ -17,7 +17,7 @@ def get_duckdb_retriever(
     k: int = 3,
     filter_expression: str | None = None,
     embedding_model: HuggingFaceEmbeddings = None,
-) -> vectorstores.VectorStoreRetriever:
+) -> VectorStoreRetriever:
     """
     Returns a retriever object configured for document retrieval,
     leveraging the vector_store instance's
@@ -27,7 +27,7 @@ def get_duckdb_retriever(
          A retriever object ready for document retrieval operations.
     """
     if not embedding_model:
-        embedding = get_embedding_model(model_name=AvailableEmbeddingModels.BGE_LARGE_EN)
+        embedding = get_embedding_model(model_name=config.app_embedding_model)
     if not filter_expression:
         filter_expression = "TRUE"
     con = duckdb.connect(
@@ -58,7 +58,7 @@ def get_duckdb_vectorstore(
          A CustomDuckDB object ready for document operations.
     """
     if not embedding_model:
-        embedding = get_embedding_model(model_name=AvailableEmbeddingModels.BGE_LARGE_EN)
+        embedding = get_embedding_model(model_name=config.app_embedding_model)
     con = duckdb.connect(
         database=db_path,
         read_only=False,

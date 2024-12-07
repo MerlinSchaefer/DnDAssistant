@@ -1,11 +1,11 @@
-import json
-import logging
 import os
 
 from langchain_community.chat_message_histories import FileChatMessageHistory
 
+DEFAULT_STORAGE_PATH = "./src/chatlogs"
 
-def get_or_create_memory(session_id: str, storage_path: str = "./chatlogs") -> FileChatMessageHistory:
+
+def get_or_create_memory(session_id: str, storage_path: str = DEFAULT_STORAGE_PATH) -> FileChatMessageHistory:
     """
     Retrieves a FileChatMessageHistory object from storage, or creates a new one if it doesn't exist.
 
@@ -21,15 +21,24 @@ def get_or_create_memory(session_id: str, storage_path: str = "./chatlogs") -> F
     if not os.path.exists(storage_path):
         os.makedirs(storage_path)
     memory_path = get_memory_path(session_id, storage_path)
-    # Check if the memory exists
-    if os.path.exists(memory_path):
-        logging.info(f"Loading memory for session {session_id}")
-        with open(memory_path, "rb") as file_object:
-            memory = json.load(file_object)
-    else:
-        logging.info(f"Creating new memory for session {session_id}")
-        memory = create_memory(memory_path)
-    return memory
+
+    return FileChatMessageHistory(file_path=memory_path)
+
+
+def list_memories(storage_path: str = DEFAULT_STORAGE_PATH) -> list[str]:
+    """
+    List all the memory files stored in the storage system.
+
+    Args:
+        storage_path: The base path in the storage system where the memory files are located.
+            Defaults to a configuration-defined chatlogs folder.
+
+    Returns:
+        list[str]: A list of paths to the memory files.
+    """
+    if not os.path.exists(storage_path):
+        return []
+    return [f"{storage_path}/{f}" for f in os.listdir(storage_path) if os.path.isfile(f"{storage_path}/{f}")]
 
 
 def create_memory(memory_path) -> FileChatMessageHistory:

@@ -1,5 +1,4 @@
 import logging
-from datetime import datetime
 from pathlib import Path
 
 import streamlit as st
@@ -9,14 +8,15 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables.history import RunnableWithMessageHistory
 
-# from src.db import get_vector_store, get_storage_context
+from src.config import config
+from src.llm.agents import RAGApplication
 from src.llm.deployments import (
     AvailableChatModels,
     AvailableEmbeddingModels,
     get_chat_model,
     get_embedding_model,
 )
-from src.llm.memory import create_memory
+from src.llm.memory import get_or_create_memory, list_memories
 from src.llm.prompts.assistant import general_prompt
 from src.parsing import DocumentProcessor, get_duckdb_retriever, get_duckdb_vectorstore
 
@@ -26,13 +26,17 @@ logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(name)s - %(leve
 
 # Funcs to create page resources
 @st.cache_resource
-def load_llm(model_name=AvailableChatModels.LLAMA_3_2) -> ChatOllama:
-    return get_chat_model(model_name=model_name)
+def load_llm(
+    model_name: AvailableChatModels = config.app_chat_model,
+    temperature: float = config.app_chat_temperature,
+    context_length: int = config.app_chat_context_length,
+) -> ChatOllama:
+    return get_chat_model(model_name=model_name, temperature=temperature, context_length=context_length)
 
 
 @st.cache_resource
-def load_emb() -> HuggingFaceEmbeddings:
-    return get_embedding_model(model_name=AvailableEmbeddingModels.BGE_LARGE_EN)  # BGE_LARGE_EN
+def load_emb(model_name: AvailableEmbeddingModels = config.app_embedding_model) -> HuggingFaceEmbeddings:
+    return get_embedding_model(model_name=model_name)  # BGE_LARGE_EN
 
 
 @st.cache_resource
@@ -45,32 +49,9 @@ def load_vectorstore(db_path: str = "./data/duckdb_embeddings"):
 def load_retriever(db_path: str = "./data/duckdb_embeddings"):
     return get_duckdb_retriever(
         db_path=db_path,
-        k=3,
+        k=5,
         filter_expression=None,
     )
-
-
-# ONLY FOR TESTING
-class RAGApplication:
-    def __init__(self, retriever, rag_chain, session_id=None):
-        self.retriever = retriever
-        self.rag_chain = rag_chain
-        if not session_id:
-            self.session_id = datetime.now().strftime("%Y%m%d%H%M%S")
-
-    def invoke(self, question):
-        # Retrieve relevant documents
-        documents = self.retriever.invoke(question)
-        # Extract content from retrieved documents
-        doc_texts = "\\n".join([doc.page_content for doc in documents])
-        # Get the answer from the language model
-        answer = self.rag_chain.invoke(
-            {"question": question, "documents": doc_texts}, config={"configurable": {"session_id": self.session_id}}
-        )
-        return answer
-
-    def _test(self):
-        return self.invoke("Hello, how are you?")
 
 
 @st.cache_resource
@@ -80,7 +61,7 @@ def get_rag_app(_llm: ChatOllama, prompt: PromptTemplate = general_prompt):
     logging.debug(f"RAG chain: {rag_chain}")
     rag_chain_with_history = RunnableWithMessageHistory(
         rag_chain,
-        create_memory,  # get_or_create_memory, NEEDS FIX FOR RETRIEVAL OF .messages
+        get_or_create_memory,
         input_messages_key="question",
     )
     print(f"RAG chain with history: {rag_chain_with_history}")
@@ -98,7 +79,7 @@ st.set_page_config(page_title="Dungeon Master Assistant", layout="centered")
 st.title("Dungeon Master Assistant Chat")
 # Sidebar for additional options
 st.sidebar.title("Options")
-st.sidebar.write("Manage models, documents, and queries.")
+st.sidebar.write("Manage models, documents, and memories.")
 
 # Initialize session state variables
 if "messages" not in st.session_state:
@@ -118,42 +99,39 @@ if "rag_pp" not in st.session_state:
 load_model_button = st.sidebar.button("Load Model and Engine")
 
 # Sidebar: File Upload for Document Parsing
-uploaded_file = st.sidebar.file_uploader("Upload a document", type=["pdf", "txt", "md"])
+uploaded_files = st.sidebar.file_uploader("Upload a document", type=["pdf", "txt", "md"], accept_multiple_files=True)
 process_file_button = st.sidebar.button("Process File")
 
+available_memories = st.sidebar.selectbox(label="Chats", options=list_memories())
 
 # Process the uploaded document
-if process_file_button and uploaded_file:
-    # Save the uploaded file to a temporary path
-    temp_file_path = Path(f"temp_{uploaded_file.name}")
-    with open(temp_file_path, "wb") as f:
-        f.write(uploaded_file.getbuffer())
+if process_file_button and uploaded_files:
+    for uploaded_file in uploaded_files:
+        # Save the uploaded file to a temporary path
+        temp_file_path = Path(f"temp_{uploaded_file.name}")
+        with open(temp_file_path, "wb") as f:
+            f.write(uploaded_file.getbuffer())
 
-    # Parse and embed the document
-    st.write(f"Processing document: {uploaded_file.name}...")
-    document_parser = DocumentProcessor()
-    try:
-        docs = document_parser.load_and_process_documents(str(temp_file_path))
-        st.success("Document processed into doc chunks successfully!")
+        # Parse and embed the document
+        st.sidebar.write(f"Processing document: {uploaded_file.name}...")
+        document_parser = DocumentProcessor()
+        try:
+            docs = document_parser.load_and_process_documents(str(temp_file_path))
+            st.sidebar.success("Document processed into doc chunks successfully!")
 
-        # Add docs to the vector store
+            # Add docs to the vector store
 
-        st.session_state.vectorstore.add_documents(docs)
-        st.success("Docs added to the vector store!")
+            st.session_state.vectorstore.add_documents(docs)
+            st.sidebar.success("Docs added to the vector store!")
 
-        # Optionally, display the docs
-        st.write(docs)
-        # st.write("Retrieved dpcs:")
-        # doc_ids = [doc.id for doc in docs]
-        # docs_retrieved = vectorstore.get_by_ids(doc_ids)
-        # for node in nodes_retrieved:
-        #     st.write(node)
+            # Optionally, display the docs
+            st.sidebar.write(docs)
 
-    except Exception as e:
-        st.error(f"Error processing document: {e}")
-    finally:
-        # Clean up the temporary file
-        temp_file_path.unlink()
+        except Exception as e:
+            st.error(f"Error processing document: {e}")
+        finally:
+            # Clean up the temporary file
+            temp_file_path.unlink()
 
 if load_model_button:
     # model_name = AvailableChatModels[model_name_str]  # Convert string to Enum
