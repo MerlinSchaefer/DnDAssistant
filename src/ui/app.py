@@ -93,7 +93,7 @@ if "rag_pp" not in st.session_state:
 
 
 # Sidebar: Model selection
-# model_name_str = st.sidebar.selectbox("Select a chat model", options=[model.name for model in AvailableChatModels])
+model_name_str = st.sidebar.selectbox("Select a chat model", options=[model.name for model in AvailableChatModels])
 
 # Sidebar: Button to load the model and query engine
 load_model_button = st.sidebar.button("Load Model and Engine")
@@ -133,9 +133,9 @@ if process_file_button and uploaded_files:
             # Clean up the temporary file
             temp_file_path.unlink()
 
-if load_model_button:
-    # model_name = AvailableChatModels[model_name_str]  # Convert string to Enum
-    llm = load_llm()
+if load_model_button and model_name_str:
+    model_name = AvailableChatModels[model_name_str]  # Convert string to Enum
+    llm = load_llm(model_name=model_name)
     st.session_state.llm = llm
     st.session_state.rag_app = get_rag_app(st.session_state.llm)
     # st.session_state.query_engine = get_query_engine(st.session_state.llm)

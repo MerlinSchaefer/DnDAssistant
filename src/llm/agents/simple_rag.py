@@ -1,7 +1,24 @@
 from datetime import datetime
 
+from langchain.prompts import PromptTemplate
+from langchain_community.chat_models import ChatOllama
+from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_core.vectorstores import VectorStoreRetriever
+
+from src.llm.memory import get_or_create_memory
+from src.llm.prompts.assistant import general_prompt
+
+
+def get_rag_chain(_llm: ChatOllama, prompt: PromptTemplate = general_prompt, with_history: bool = False):
+    rag_chain = prompt | _llm | StrOutputParser()
+    if with_history:
+        rag_chain = RunnableWithMessageHistory(
+            rag_chain,
+            get_or_create_memory,
+            input_messages_key="question",
+        )
+    return rag_chain
 
 
 class RAGApplication:

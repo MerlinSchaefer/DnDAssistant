@@ -1,6 +1,10 @@
+import logging
 import os
+import pickle
 
+from langchain.memory import ConversationBufferMemory
 from langchain_community.chat_message_histories import FileChatMessageHistory
+from langchain_core.memory import BaseMemory
 
 DEFAULT_STORAGE_PATH = "./src/chatlogs"
 
@@ -48,3 +52,56 @@ def create_memory(memory_path) -> FileChatMessageHistory:
 
 def get_memory_path(session_id: str, storage_path: str) -> str:
     return f"{storage_path}/{session_id}"
+
+
+# TODO: handle loading and saving in agent
+def create_buffer_memory() -> ConversationBufferMemory:
+    return ConversationBufferMemory(memory_key="chat_history", return_messages=True)
+
+
+def dump_memory(
+    session_id: str,
+    memory: BaseMemory,
+    storage_path: str = DEFAULT_STORAGE_PATH,
+) -> None:
+    """
+    Serializes and saves a ConversationBufferMemory object to a storage.
+
+    Args:
+        session_id (str): The unique identifier for the session.
+        memory (ConversationBufferMemory): The memory object to be serialized and saved.
+        storage_path (str): The base path in the storage system where the memory file will be saved.
+        Defaults to a configuration-defined chatlogs folder.
+
+    Returns:
+        None
+    """
+    # TODO: Handle case where memory is None.
+    memory_path = get_memory_path(session_id, storage_path)
+    with open(memory_path, "wb") as file_object:
+        pickle.dump(memory, file_object)
+
+
+def get_or_create_buffer_memory(session_id: str, storage_path: str) -> ConversationBufferMemory:
+    """
+    Retrieves a ConversationBufferMemory object from storage, or creates a new one if it doesn't exist.
+
+    Args:
+        session_id: The unique identifier for the session.
+        storage_path: The base path in the storage system where the memory file would be located.
+            Defaults to a configuration-defined chatlogs folder.
+
+    Returns:
+        ConversationBufferMemory: The loaded or newly created memory object.
+    """
+    memory_path = get_memory_path(session_id, storage_path)
+    # Check if the memory exists
+    if os.path.exists(memory_path):
+        logging.info(f"Loading memory for session {session_id}")
+        # TODO storage path make project-chatlog path
+        with open(memory_path, "rb") as file_object:
+            memory = pickle.load(file_object)
+    else:
+        logging.info(f"Creating new memory for session {session_id}")
+        memory = create_buffer_memory()
+    return memory
