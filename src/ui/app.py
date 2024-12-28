@@ -1,24 +1,27 @@
 import logging
+from datetime import datetime
 from pathlib import Path
 
 import streamlit as st
-from langchain.prompts import PromptTemplate
 from langchain_community.chat_models import ChatOllama
 from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain_core.output_parsers import StrOutputParser
-from langchain_core.runnables.history import RunnableWithMessageHistory
 
 from src.config import config
-from src.llm.agents import RAGApplication
+from src.llm.agents import ConversationalRetrievalAgentWithMemory  # , RAGApplication
 from src.llm.deployments import (
     AvailableChatModels,
     AvailableEmbeddingModels,
     get_chat_model,
     get_embedding_model,
 )
-from src.llm.memory import get_or_create_memory, list_memories
-from src.llm.prompts.assistant import general_prompt
+from src.llm.memory import PickleMemory, list_memories
+
+# from src.llm.prompts.assistant import general_prompt, react_prompt
 from src.parsing import DocumentProcessor, get_duckdb_retriever, get_duckdb_vectorstore
+
+# from langchain_core.output_parsers import StrOutputParser
+# from langchain_core.runnables.history import RunnableWithMessageHistory
+
 
 # Configure basic debug logging
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -55,21 +58,32 @@ def load_retriever(db_path: str = "./data/duckdb_embeddings"):
 
 
 @st.cache_resource
-def get_rag_app(_llm: ChatOllama, prompt: PromptTemplate = general_prompt):
+def load_memory(session_id: str = datetime.now().strftime("%Y%m%d%H%M%S"), storage_path: str | None = None):
+    memory = PickleMemory(session_id=session_id, storage_path=storage_path)
+    memory.load()
+    return memory
+
+
+@st.cache_resource
+def get_rag_app(_llm: ChatOllama, _memory: PickleMemory):
     retriever = load_retriever()
-    rag_chain = prompt | _llm | StrOutputParser()
-    logging.debug(f"RAG chain: {rag_chain}")
-    rag_chain_with_history = RunnableWithMessageHistory(
-        rag_chain,
-        get_or_create_memory,
-        input_messages_key="question",
+    # rag_chain = prompt | _llm | StrOutputParser()
+    # logging.debug(f"RAG chain: {rag_chain}")
+    # rag_chain_with_history = RunnableWithMessageHistory(
+    #     rag_chain,
+    #     get_or_create_memory,
+    #     input_messages_key="question",
+    # )
+    # print(f"RAG chain with history: {rag_chain_with_history}")
+    # # Define the RAG application class
+
+    # rag_app = RAGApplication(retriever, rag_chain_with_history)
+    # print(f"RAG app: {rag_app}")
+    rag_app = ConversationalRetrievalAgentWithMemory(
+        retriever=retriever,
+        chat_model=_llm,
+        memory=_memory.get_memory(),
     )
-    print(f"RAG chain with history: {rag_chain_with_history}")
-    # Define the RAG application class
-
-    rag_app = RAGApplication(retriever, rag_chain_with_history)
-    print(f"RAG app: {rag_app}")
-
     return rag_app
 
 
@@ -88,8 +102,10 @@ if "llm" not in st.session_state:
     st.session_state.llm = None
 if "retriever" not in st.session_state:
     st.session_state.vectorstore = load_vectorstore()
-if "rag_pp" not in st.session_state:
-    st.session_state.query_engine = None
+if "memory" not in st.session_state:
+    st.session_state.memory = load_memory()
+if "rag_app" not in st.session_state:
+    st.session_state.rag_app = None
 
 
 # Sidebar: Model selection
@@ -103,6 +119,12 @@ uploaded_files = st.sidebar.file_uploader("Upload a document", type=["pdf", "txt
 process_file_button = st.sidebar.button("Process File")
 
 available_memories = st.sidebar.selectbox(label="Chats", options=list_memories())
+
+# Sidebar: Button to list available documents
+list_docs_button = st.sidebar.button("List Documents")
+
+if list_docs_button:
+    st.sidebar.write(doc.metadata["source"] for doc in st.session_state.vectorstore.list_all_documents())
 
 # Process the uploaded document
 if process_file_button and uploaded_files:
@@ -137,7 +159,7 @@ if load_model_button and model_name_str:
     model_name = AvailableChatModels[model_name_str]  # Convert string to Enum
     llm = load_llm(model_name=model_name)
     st.session_state.llm = llm
-    st.session_state.rag_app = get_rag_app(st.session_state.llm)
+    st.session_state.rag_app = get_rag_app(st.session_state.llm, st.session_state.memory)
     # st.session_state.query_engine = get_query_engine(st.session_state.llm)
     st.success("Model and query engine loaded successfully!")
 
@@ -170,3 +192,6 @@ if prompt := st.chat_input("Ask me anything"):
     st.session_state.messages.append({"role": "assistant", "content": response})
     with st.chat_message("assistant"):
         st.markdown(response)
+
+    # Save the chat messages to the memory
+    st.session_state.memory.save()

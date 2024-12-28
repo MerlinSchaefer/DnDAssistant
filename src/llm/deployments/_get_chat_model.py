@@ -13,5 +13,8 @@ def get_chat_model(
     model_name: AvailableChatModels = AvailableChatModels.LLAMA_3_2,
     temperature: float = 0.5,
     context_length: int = 16000,
+    max_output_length: int = 8000,
 ) -> ChatOllama:
-    return ChatOllama(model=model_name.value, temperature=temperature, num_ctx=context_length)
+    return ChatOllama(
+        model=model_name.value, temperature=temperature, num_ctx=context_length, num_predict=max_output_length
+    )

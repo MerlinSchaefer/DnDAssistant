@@ -105,3 +105,24 @@ def get_or_create_buffer_memory(session_id: str, storage_path: str) -> Conversat
         logging.info(f"Creating new memory for session {session_id}")
         memory = create_buffer_memory()
     return memory
+
+
+class PickleMemory:  # TODO rename to something like MemoryHandler
+    """Chat memory that is stored in a pickle file."""
+
+    def __init__(self, session_id: str, storage_path: str = DEFAULT_STORAGE_PATH):
+        if not storage_path:
+            self.storage_path = DEFAULT_STORAGE_PATH
+        else:
+            self.storage_path = storage_path
+        self.session_id = session_id
+        self.memory = create_buffer_memory()
+
+    def save(self):
+        dump_memory(self.session_id, self.memory, self.storage_path)  # type: ignore
+
+    def load(self):
+        self.memory = get_or_create_buffer_memory(session_id=self.session_id, storage_path=self.storage_path)
+
+    def get_memory(self) -> ConversationBufferMemory:
+        return self.memory

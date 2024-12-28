@@ -204,3 +204,18 @@ class CustomDuckDB(DuckDB):
         )
         """
         self._connection.execute(create_table_sql)
+
+    def list_all_documents(self) -> list[Document]:
+        """List all documents in the database.
+
+        Returns:
+            A list of all documents in the database.
+        """
+        docs = self._table.select("*").fetchdf()
+        return [
+            Document(
+                page_content=docs[self._text_key][idx],
+                metadata=json.loads(docs["metadata"][idx]) if docs["metadata"][idx] else {},
+            )
+            for idx in range(len(docs))
+        ]

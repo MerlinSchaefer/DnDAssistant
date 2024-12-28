@@ -78,7 +78,7 @@ class CustomReActSingleInputOutputParser(ReActSingleInputOutputParser):
 class ConversationalRetrievalAgentWithMemory(InvokableAgent):
     def __init__(
         self,
-        memory: lc_memory.ConversationBufferMemory,
+        memory,  #: lc_memory.FileChatMessageHistory,
         retriever: lcc_retrievers.BaseRetriever,
         chat_model: chat_models.BaseChatModel,
     ):
