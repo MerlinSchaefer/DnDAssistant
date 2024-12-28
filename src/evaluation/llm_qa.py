@@ -1,4 +1,6 @@
+import argparse
 import re
+import time
 
 import mlflow
 import numpy as np
@@ -86,8 +88,20 @@ class LLMJudge:
 
 
 def main():
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(description="Evaluate LLM responses.")
+    parser.add_argument(
+        "--model_name",
+        type=str,
+        default=AvailableChatModels.LLAMA_3_2.name,
+        help="""Name of the model to use for evaluation (default: LLAMA_3_2,
+          available: LLAMA_3_2, LLAMA_3_1, GEMMA_2)""",
+    )
+    args = parser.parse_args()
+    model_name = AvailableChatModels[args.model_name]
+    print(f"Evaluating model: {model_name}")
     # Initialize the judge
-    judge = LLMJudge(model_name=AvailableChatModels.LLAMA_3_2)
+    judge = LLMJudge(model_name=model_name)
 
     # Evaluation dataset
     eval_data = pd.DataFrame(
@@ -115,12 +129,25 @@ def main():
     # Start MLflow run
     mlflow.set_experiment("Basic QA Eval")
     with mlflow.start_run():
+        # log the model name
+        mlflow.log_param("model_name", model_name)
+        # set model name as tag
+        mlflow.set_tag("model_name", model_name)
+        # log all params of the llm model
+        for key, value in dict(judge.llm._get_ls_params()).items():
+            mlflow.log_param(f"llm_{key}", value)
+
         for _, row in eval_data.iterrows():
             input_text = row["inputs"]
             ground_truth = row["ground_truth"]
 
             # Generate model response
+            start_time = time.time()
             model_response = judge.generate_response(input_text)
+            end_time = time.time()
+            response_time = end_time - start_time
+            # Add response time to the evaluation records
+            evaluation_records.append({"response_time": response_time})
 
             # Calculate embedding-based match score
             embedding_match_score = judge.calculate_match_score(ground_truth, model_response)
@@ -137,26 +164,31 @@ def main():
                     "input": input_text,
                     "ground_truth": ground_truth,
                     "model_response": model_response,
-                    "embedding_match_score": embedding_match_score,
-                    "llm_match_score": parsed_response["ground_truth_match"],
-                    "overall_score": parsed_response["overall_score"],
-                    "relevance": parsed_response["relevance"],
-                    "accuracy": parsed_response["accuracy"],
-                    "completeness": parsed_response["completeness"],
+                    "embedding_match_score": float(embedding_match_score),
+                    "ground_truth_match_score": float(parsed_response["ground_truth_match"]),
+                    "overall_llm_score": float(parsed_response["overall_score"]),
+                    "relevance": float(parsed_response["relevance"]),
+                    "accuracy": float(parsed_response["accuracy"]),
+                    "completeness": float(parsed_response["completeness"]),
                     "justification": parsed_response["justification"],
                 }
             )
 
         # Log metrics and artifacts
         evaluation_df = pd.DataFrame(evaluation_records)
+        # calculate the average score of each llm metric
+        llm_metrics = ["ground_truth_match_score", "relevance", "accuracy", "completeness"]
+        evaluation_df["overall_avg_score"] = evaluation_df[llm_metrics].mean(axis=1)
         evaluation_df.to_csv("evaluation_records_with_match.csv", index=False)
 
         mlflow.log_metric("avg_embedding_match_score", np.nanmean(evaluation_df["embedding_match_score"]))
-        mlflow.log_metric("avg_llm_match_score", np.nanmean(evaluation_df["llm_match_score"]))
-        mlflow.log_metric("avg_overall_score", np.nanmean(evaluation_df["overall_score"]))
+        mlflow.log_metric("avg_ground_truth_match_score", np.nanmean(evaluation_df["ground_truth_match_score"]))
+        mlflow.log_metric("avg_overall_llm_score", np.nanmean(evaluation_df["overall_llm_score"]))
+        mlflow.log_metric("avg_overall_score", np.nanmean(evaluation_df["overall_llm_score"]))
         mlflow.log_metric("avg_relevance_score", np.nanmean(evaluation_df["relevance"]))
         mlflow.log_metric("avg_accuracy_score", np.nanmean(evaluation_df["accuracy"]))
         mlflow.log_metric("avg_completeness_score", np.nanmean(evaluation_df["completeness"]))
+        mlflow.log_metric("avg_response_time", np.nanmean(evaluation_df["response_time"]))
         mlflow.log_artifact("evaluation_records_with_match.csv")
 
 
