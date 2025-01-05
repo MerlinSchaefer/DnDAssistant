@@ -2,12 +2,14 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
+import mlflow
 import streamlit as st
 from langchain_community.chat_models import ChatOllama
 from langchain_community.embeddings import HuggingFaceEmbeddings
 
 from src.config import config
-from src.llm.agents import ConversationalRetrievalAgentWithMemory  # , RAGApplication
+from src.evaluation.logging_utils import log_chat
+from src.llm.agents import ConversationalRetrievalAgentWithMemory
 from src.llm.deployments import (
     AvailableChatModels,
     AvailableEmbeddingModels,
@@ -15,19 +17,19 @@ from src.llm.deployments import (
     get_embedding_model,
 )
 from src.llm.memory import PickleMemory, list_memories
-
-# from src.llm.prompts.assistant import general_prompt, react_prompt
 from src.parsing import DocumentProcessor, get_duckdb_retriever, get_duckdb_vectorstore
-
-# from langchain_core.output_parsers import StrOutputParser
-# from langchain_core.runnables.history import RunnableWithMessageHistory
-
 
 # Configure basic debug logging
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
+mlflow.set_experiment("App Chat")
+# Set the chat log path for MLFlow
+if "mlflow_chatlog_path" not in st.session_state:
+    st.session_state.mlflow_chatlog_path = (
+        f"{config.default_chatlog_path}/mlflow_logging/chatlog_{datetime.now().strftime('%Y%m%d%H%M%S')}.txt"
+    )
 
-# Funcs to create page resources
+
 @st.cache_resource
 def load_llm(
     model_name: AvailableChatModels = config.app_chat_model,
@@ -38,13 +40,14 @@ def load_llm(
 
 
 @st.cache_resource
-def load_emb(model_name: AvailableEmbeddingModels = config.app_embedding_model) -> HuggingFaceEmbeddings:
+def load_emb(
+    model_name: AvailableEmbeddingModels = config.app_embedding_model,  # BGE_LARGE_EN
+) -> HuggingFaceEmbeddings:
     return get_embedding_model(model_name=model_name)  # BGE_LARGE_EN
 
 
 @st.cache_resource
 def load_vectorstore(db_path: str = "./data/duckdb_embeddings"):
-    # return SKLearnVectorStore(embedding=load_emb(), n_neighbors=1)
     return get_duckdb_vectorstore(db_path=db_path)
 
 
@@ -65,20 +68,8 @@ def load_memory(session_id: str = datetime.now().strftime("%Y%m%d%H%M%S"), stora
 
 
 @st.cache_resource
-def get_rag_app(_llm: ChatOllama, _memory: PickleMemory):
+def get_rag_app(_llm: ChatOllama, _memory: PickleMemory) -> ConversationalRetrievalAgentWithMemory:
     retriever = load_retriever()
-    # rag_chain = prompt | _llm | StrOutputParser()
-    # logging.debug(f"RAG chain: {rag_chain}")
-    # rag_chain_with_history = RunnableWithMessageHistory(
-    #     rag_chain,
-    #     get_or_create_memory,
-    #     input_messages_key="question",
-    # )
-    # print(f"RAG chain with history: {rag_chain_with_history}")
-    # # Define the RAG application class
-
-    # rag_app = RAGApplication(retriever, rag_chain_with_history)
-    # print(f"RAG app: {rag_app}")
     rag_app = ConversationalRetrievalAgentWithMemory(
         retriever=retriever,
         chat_model=_llm,
@@ -156,12 +147,18 @@ if process_file_button and uploaded_files:
             temp_file_path.unlink()
 
 if load_model_button and model_name_str:
-    model_name = AvailableChatModels[model_name_str]  # Convert string to Enum
-    llm = load_llm(model_name=model_name)
-    st.session_state.llm = llm
-    st.session_state.rag_app = get_rag_app(st.session_state.llm, st.session_state.memory)
-    # st.session_state.query_engine = get_query_engine(st.session_state.llm)
-    st.success("Model and query engine loaded successfully!")
+    with mlflow.start_run() as run:
+        st.session_state.mlflow_run_id = run.info.run_id
+        mlflow.log_param("selected_model", model_name_str)
+
+        model_name = AvailableChatModels[model_name_str]  # Convert string to Enum
+        llm = load_llm(model_name=model_name)
+        st.session_state.llm = llm
+        st.session_state.rag_app = get_rag_app(st.session_state.llm, st.session_state.memory)
+        # log the langchain model to mlflow
+        mlflow.langchain.log_model(st.session_state.rag_app._agent_executor, "react agent")
+
+        st.success("Model and query engine loaded successfully!")
 
 # Display existing chat messages
 for message in st.session_state.messages:
@@ -172,14 +169,9 @@ for message in st.session_state.messages:
 if prompt := st.chat_input("Ask me anything"):
     # Display user's message in the chat and add to session state
     st.session_state.messages.append({"role": "user", "content": prompt})
+
     with st.chat_message("user"):
         st.markdown(prompt)
-
-    # Get the response from the query engine if it's loaded
-    # if st.session_state.query_engine:
-
-    # response = st.session_state.query_engine.query(prompt)
-    # print(response.source_nodes)
     if st.session_state.rag_app:
         try:
             response = st.session_state.rag_app.invoke(prompt)
@@ -195,3 +187,9 @@ if prompt := st.chat_input("Ask me anything"):
 
     # Save the chat messages to the memory
     st.session_state.memory.save()
+
+    # Log the chat to MLFlow
+    mlflow.start_run(run_id=st.session_state.mlflow_run_id)
+
+    log_chat(prompt, response, log_file=st.session_state.mlflow_chatlog_path)
+    mlflow.end_run()

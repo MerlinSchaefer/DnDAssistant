@@ -42,6 +42,8 @@ class Configuration(Settings):
     default_chunk_size: int = Field(default=4000, validation_alias="DEFAULT_CHUNK_SIZE")
     default_chunk_overlap: int = Field(default=100, validation_alias="DEFAULT_CHUNK_OVERLAP")
 
+    default_chatlog_path: str = Field(default="./src/chatlogs", validation_alias="DEFAULT_CHATLOG_PATH")
+
 
 dotenv.load_dotenv(dotenv.find_dotenv(), override=True)
 config = Configuration()

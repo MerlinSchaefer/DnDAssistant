@@ -6,7 +6,9 @@ from langchain.memory import ConversationBufferMemory
 from langchain_community.chat_message_histories import FileChatMessageHistory
 from langchain_core.memory import BaseMemory
 
-DEFAULT_STORAGE_PATH = "./src/chatlogs"
+from src.config.configuration import config
+
+DEFAULT_STORAGE_PATH = config.default_chatlog_path
 
 
 def get_or_create_memory(session_id: str, storage_path: str = DEFAULT_STORAGE_PATH) -> FileChatMessageHistory:
